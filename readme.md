@@ -4,7 +4,7 @@ Process provide a simple structure for providing a nice means of executing shell
 
 ## Example
 
-- Executing simple commands asynchronously
+- Executing simple commands synchronously
 ```go
 src := process.SyncProcess{
     Commands: []process.Command{
@@ -21,7 +21,7 @@ var errBu, outBu bytes.Buffer
 err := src.SyncExec(ctx, &outBu, &errBu)
 ```
 
-- Executing simple commands synchronously
+- Executing simple commands asynchronously
 ```go
 src := process.ASyncProcess{
     Commands: []process.Command{
