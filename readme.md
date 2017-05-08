@@ -18,12 +18,12 @@ src := process.SyncProcess{
 ctx := context.Background()
 
 var errBu, outBu bytes.Buffer
-err := src.AsyncExec(ctx, &outBu, &errBu)
+err := src.SyncExec(ctx, &outBu, &errBu)
 ```
 
 - Executing simple commands synchronously
 ```go
-src := process.SyncProcess{
+src := process.ASyncProcess{
     Commands: []process.Command{
         process.Command{
             Name: "echo",
@@ -35,7 +35,7 @@ src := process.SyncProcess{
 ctx := context.Background()
 
 var errBu, outBu bytes.Buffer
-err := src.SyncExec(ctx, &outBu, &errBu)
+err := src.AsyncExec(ctx, &outBu, &errBu)
 ```
 
 - Executing a shell script source
