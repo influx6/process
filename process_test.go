@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeytrap/honeytrap/process"
-	"github.com/honeytrap/honeytrap/utils/tests"
+	"github.com/influx6/faux/tests"
+	"github.com/influx6/process"
 )
 
 // TestCommandProcess validates the behaviours of the process.Command structure.
