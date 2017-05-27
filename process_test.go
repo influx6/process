@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/honeytrap/honeytrap/process"
-	"github.com/honeytrap/tests"
+	"github.com/honeytrap/honeytrap/utils/tests"
 )
 
 // TestCommandProcess validates the behaviours of the process.Command structure.
@@ -24,7 +24,7 @@ func TestCommandSyncProcess(t *testing.T) {
 	ctx := context.Background()
 
 	var errBu, outBu bytes.Buffer
-	err := src.SyncExec(ctx, &outBu, &errBu)
+	err := src.Exec(ctx, &outBu, &errBu)
 	if err != nil {
 		tests.Failed("Should have successfully executed shell script: %+q.", err)
 	}
@@ -64,6 +64,7 @@ func TestScriptProcess(t *testing.T) {
 func TestScriptProcessWithCancel(t *testing.T) {
 	src := process.ScriptProcess{
 		Shell: "/bin/bash",
+		Level: process.RedAlert,
 		Source: `echo "New Login"
 date
 sleep 10

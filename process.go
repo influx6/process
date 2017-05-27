@@ -6,23 +6,42 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"sync"
+
+	"github.com/influx6/faux/sink"
+	"github.com/influx6/faux/sink/sinks"
+)
+
+var log = sink.New(sinks.Stdout{})
+
+// CriticalLevel defines a int type which is used to signal the critical nature of a
+// command/script to be executed.
+type CriticalLevel int
+
+// Contains possible critical level values for commands execution
+const (
+	Normal CriticalLevel = iota + 1
+	Warning
+	RedAlert
+	SilentKill
 )
 
 // Command defines the command to be executed and it's arguments
 type Command struct {
-	Name string
-	Args []string
+	Name  string        `json:"name" toml:"name"`
+	Level CriticalLevel `json:"level" toml:"level"`
+	Args  []string      `json:"args" toml:"args"`
+	Async bool          `json:"async" toml:"async"`
 }
 
 // Run executes the giving command and returns the bytes.Buffer for both
 // the Stdout and Stderr.
-func (c Command) Run(ctx context.Context, out, err io.Writer) error {
+func (c Command) Run(ctx context.Context, out, werr io.Writer) error {
 	proc := exec.Command(c.Name, c.Args...)
 	proc.Stdout = out
-	proc.Stderr = err
+	proc.Stderr = werr
 
 	if err := proc.Start(); err != nil {
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %q", c.Name, c.Args))
 		return err
 	}
 
@@ -33,8 +52,16 @@ func (c Command) Run(ctx context.Context, out, err io.Writer) error {
 		}
 	}()
 
-	if err := proc.Wait(); err != nil {
-		return err
+	if !c.Async {
+		if err := proc.Wait(); err != nil {
+			log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %q", c.Name, c.Args))
+
+			if c.Level > Warning {
+				return err
+			}
+
+			return nil
+		}
 	}
 
 	return nil
@@ -48,9 +75,9 @@ type SyncProcess struct {
 	Commands []Command `json:"commands"`
 }
 
-// SyncExec executes the giving series of commands attached to the
+// Exec executes the giving series of commands attached to the
 // process.
-func (p SyncProcess) SyncExec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (p SyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
 	for _, command := range p.Commands {
 		if err := command.Run(ctx, pipeOut, pipeErr); err != nil {
 			return err
@@ -68,21 +95,34 @@ type AsyncProcess struct {
 	Commands []Command `json:"commands"`
 }
 
-// AsyncExec executes the giving series of commands attached to the
+// Exec executes the giving series of commands attached to the
 // process.
-func (p AsyncProcess) AsyncExec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
-	var waiter sync.WaitGroup
-
+func (p AsyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
 	for _, command := range p.Commands {
-		go func(cmd Command) {
-			waiter.Add(1)
-			defer waiter.Done()
-
-			cmd.Run(ctx, pipeOut, pipeErr)
-		}(command)
+		command.Async = true
+		command.Run(ctx, pipeOut, pipeErr)
 	}
 
-	waiter.Wait()
+	return nil
+}
+
+//============================================================================================
+
+// SyncScripts defines a struct which is used to execute a giving set of
+// shell script.
+type SyncScripts struct {
+	Scripts []ScriptProcess `json:"commands"`
+}
+
+// Exec executes the giving series of commands attached to the
+// process.
+func (p SyncScripts) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+	for _, command := range p.Scripts {
+		if err := command.Exec(ctx, pipeOut, pipeErr); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -92,24 +132,28 @@ func (p AsyncProcess) AsyncExec(ctx context.Context, pipeOut, pipeErr io.Writer)
 // given script into a local file path and attempts to execute content.
 // Shell states the shell to be used for execution: /bin/sh, /bin/bash
 type ScriptProcess struct {
-	Source string `json:"source"`
-	Shell  string `json:"shell"`
+	Shell  string        `json:"shell" toml:"shell"`
+	Source string        `json:"source" toml:"source"`
+	Level  CriticalLevel `json:"level" toml:"level"`
 }
 
 // Exec executes a copy of the giving script source in a temporary file which it then executes
 // the contents.
-func (sp ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (c ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
 	tmpFile, err := ioutil.TempFile("/tmp", "proc-shell")
 	if err != nil {
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
 		return err
 	}
 
-	if _, err := tmpFile.Write([]byte(sp.Source)); err != nil {
+	if _, err := tmpFile.Write([]byte(c.Source)); err != nil {
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
 		tmpFile.Close()
 		return err
 	}
 
 	if err := tmpFile.Sync(); err != nil {
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
 		tmpFile.Close()
 		return err
 	}
@@ -118,11 +162,12 @@ func (sp ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) er
 
 	defer os.Remove(tmpFile.Name())
 
-	proc := exec.Command(sp.Shell, tmpFile.Name())
+	proc := exec.Command(c.Shell, tmpFile.Name())
 	proc.Stdout = pipeOut
 	proc.Stderr = pipeErr
 
 	if err := proc.Start(); err != nil {
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
 		return err
 	}
 
@@ -134,7 +179,13 @@ func (sp ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) er
 	}()
 
 	if err := proc.Wait(); err != nil {
-		return err
+		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %q", c.Shell, c.Source))
+
+		if c.Level > Warning {
+			return err
+		}
+
+		return nil
 	}
 
 	return nil
