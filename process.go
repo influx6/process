@@ -35,9 +35,10 @@ type Command struct {
 
 // Run executes the giving command and returns the bytes.Buffer for both
 // the Stdout and Stderr.
-func (c Command) Run(ctx context.Context, out, werr io.Writer) error {
+func (c Command) Run(ctx context.Context, wout, werr io.Writer, pin io.Reader) error {
 	proc := exec.Command(c.Name, c.Args...)
-	proc.Stdout = out
+	proc.Stdout = wout
+	proc.Stdin = pin
 	proc.Stderr = werr
 
 	if err := proc.Start(); err != nil {
@@ -77,9 +78,9 @@ type SyncProcess struct {
 
 // Exec executes the giving series of commands attached to the
 // process.
-func (p SyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (p SyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer, pipeIn io.Reader) error {
 	for _, command := range p.Commands {
-		if err := command.Run(ctx, pipeOut, pipeErr); err != nil {
+		if err := command.Run(ctx, pipeOut, pipeErr, pipeIn); err != nil {
 			return err
 		}
 	}
@@ -97,10 +98,10 @@ type AsyncProcess struct {
 
 // Exec executes the giving series of commands attached to the
 // process.
-func (p AsyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (p AsyncProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer, pipeIn io.Reader) error {
 	for _, command := range p.Commands {
 		command.Async = true
-		command.Run(ctx, pipeOut, pipeErr)
+		command.Run(ctx, pipeOut, pipeErr, pipeIn)
 	}
 
 	return nil
@@ -116,9 +117,9 @@ type SyncScripts struct {
 
 // Exec executes the giving series of commands attached to the
 // process.
-func (p SyncScripts) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (p SyncScripts) Exec(ctx context.Context, pipeOut, pipeErr io.Writer, pipeIn io.Reader) error {
 	for _, command := range p.Scripts {
-		if err := command.Exec(ctx, pipeOut, pipeErr); err != nil {
+		if err := command.Exec(ctx, pipeOut, pipeErr, pipeIn); err != nil {
 			return err
 		}
 	}
@@ -139,7 +140,7 @@ type ScriptProcess struct {
 
 // Exec executes a copy of the giving script source in a temporary file which it then executes
 // the contents.
-func (c ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) error {
+func (c ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer, pipeIn io.Reader) error {
 	tmpFile, err := ioutil.TempFile("/tmp", "proc-shell")
 	if err != nil {
 		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
@@ -165,6 +166,7 @@ func (c ScriptProcess) Exec(ctx context.Context, pipeOut, pipeErr io.Writer) err
 	proc := exec.Command(c.Shell, tmpFile.Name())
 	proc.Stdout = pipeOut
 	proc.Stderr = pipeErr
+	proc.Stdin = pipeIn
 
 	if err := proc.Start(); err != nil {
 		log.Emit(sinks.Error("Process : Error : Command : Begin Execution : %q : %+q", c.Shell, err))
